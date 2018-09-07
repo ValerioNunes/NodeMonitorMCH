@@ -1,52 +1,27 @@
-#include <Arduino.h>
-#include <ESP8266WiFi.h>
-#include <ESP8266WiFiMulti.h>
-#include <ESP8266HTTPClient.h>
-#include <SoftwareSerial.h>
+#include "MonitorMCH.h"
 
 
-#define USE_SERIAL Serial
-#define Normal   1
-#define Reverso -1
-#define semIndicacao 0
-#define qtdAtributos 4
-#define tempoMovimentacao 10
-#define mediaVibracao 30
-ESP8266WiFiMulti WiFiMulti;
+struct NodeMonitor mchA, mchB;
+double mediaVibracao;
+int maximoVibracao,minimoVibracao;
 
-String url = "http://192.168.137.238:8080";
-String local = "TU W01";
-String anteriorJson = "";
+void inicializarVariaveis() {
 
-// 0 - input1 / 1 - input2 / 2 - perda indicacao / 3 - LedFalha
+  mchA.pinInput = D5;
+  mchA.ledFalha = D1;
+  mchA.indicacaoAnterior = -1;
+  mchA.msg = "INDICACAO MCH A";
 
-
-
-int inputMCH_A = D5;
-int inputMCH_B = D6;
-int falhaMCH_A = D1;
-int falhaMCH_B = D2;
-int valorAntMCH_A = -1;
-int valorAntMCH_B = -1;
-
-
-int sensorMovimentacao = D7;
-const int buzzer = D8;
-bool Alerta =  false;
-
-const int sensorVibracao = A0;
-double vibracao;
-int movimentacao;
-unsigned long previousMillisIndicacao = 0;
-const long intervalIndicacao = 1000;
-
-unsigned long previousMillisVibracao = 0;
-const long intervalVibracao = 1000;
-
+  mchB.pinInput = D6;
+  mchB.ledFalha = D2;
+  mchB.indicacaoAnterior = -1;
+  mchB.msg = "INDICACAO MCH B";
+  
+}
 
 
 void setup() {
-
+  inicializarVariaveis();
   USE_SERIAL.begin(115200);
   //USE_SERIAL.setDebugOutput(true);
 
@@ -55,16 +30,16 @@ void setup() {
   USE_SERIAL.println();
   USE_SERIAL.println();
 
-
-  pinMode(inputMCH_A, INPUT);
-  pinMode(inputMCH_B, INPUT);
   
-  pinMode(falhaMCH_A , OUTPUT);
-  pinMode(falhaMCH_B , OUTPUT);
+  pinMode(mchA.pinInput, INPUT);
+  pinMode(mchA.ledFalha, OUTPUT);
+  pinMode(mchB.pinInput, INPUT);
+  pinMode(mchB.ledFalha, OUTPUT);
 
-  
-  //pinMode(sensorMovimentacao, INPUT);
-  //pinMode(buzzer, INPUT);
+
+  pinMode(sensorMovimentacao, INPUT);
+  pinMode(buzzer, OUTPUT);
+
   for (uint8_t t = 4; t > 0; t--) {
     USE_SERIAL.printf("[SETUP] WAIT %d...\n", t);
     USE_SERIAL.flush();
@@ -73,16 +48,13 @@ void setup() {
   resetFalha();
   WiFi.mode(WIFI_STA);
   WiFiMulti.addAP("DESKTOP-H4", "1234567890");
+  WiFiMulti.addAP("valerio", "valerioarduinobreno");
 
 }
-void alerta(){
-  
-     if(Alerta){ 
-          tone(buzzer, 650, 1000);
-          delay(100);
-          noTone(buzzer);
-     }
- 
+void alerta() {
+  tone(buzzer, 650, 1000);
+  delay(100);
+  noTone(buzzer);
 }
 
 int  getMovimentacao() {
@@ -90,79 +62,81 @@ int  getMovimentacao() {
   return movimentacao;
 }
 
-double getVibracao() {
-  double media = 0;
-  for (int i = 0; i < mediaVibracao; i++ ) {
-    int sensorValue = analogRead(sensorVibracao);
-    media = media +  sensorValue;
+double getVibracao(double *media,int *maximo,int *minimo) {
+  int i = 0;
+  int sensorValue = analogRead(sensorVibracao);
+  *maximo =  sensorValue;
+  *minimo =  sensorValue;
+  *media  =  sensorValue;
+
+  while ((sensorValue > 10) && (i< qtdLeiturasVibracao)) {
+    sensorValue = analogRead(sensorVibracao);
+    *media = *media +  sensorValue;
+    *maximo =(*maximo < sensorValue) ? sensorValue : *maximo;
+    *minimo =(*minimo > sensorValue) ? sensorValue : *minimo;
+    i++;
   }
 
-  return media / (mediaVibracao * 1.00);
+  *media = *media / (qtdLeiturasVibracao * 1.00);
+}
+
+void  perdaIndicacao(NodeMonitor *mch) {
+
+  mch->indicacaoAtual =  ((!getMovimentacao()) && (!digitalRead(mch->pinInput)))? 1 : 0;
+  postEnviar(*mch);
+}
+
+void postEnviar(NodeMonitor mch){
+  
+    if ((mch.indicacaoAtual != mch.indicacaoAnterior)) {
+      gerarJson(mch.msg);
+      if (mch.indicacaoAtual)
+        digitalWrite(mch.ledFalha, HIGH);
+    }
 }
 
 
+void gerarJson(String mensagem) {
 
-
-bool  perdaIndicacao(int mch) {
-
-  if (!getMovimentacao()) {
-    delay(tempoMovimentacao);
-    if (!digitalRead(mch))
-      return true;
-  }
-  return false;
-}
-
-void geralJson(String mensagem) {
-
-  String json =  "{\"local\" : \"" + local + "\", \"mchA\": " + digitalRead(inputMCH_A) + ", \"mchB\": " + digitalRead(inputMCH_B)  + " , \"vib\": " + vibracao + " , \"mov\": " + movimentacao + ", \"desc\": \"" + mensagem + "\" }";
+  String json =  "{\"local\" : \"" + local + "\", \"mchA\": " + digitalRead(mchA.pinInput) + ", \"mchB\": " + digitalRead(mchB.pinInput)  + " , \"vib\": " + mediaVibracao + " , \"mov\": " + movimentacao + ", \"desc\": \"" + mensagem + "\" }";
   postDados(json);
 }
 
-
-void checkIndicacao() {
-
-  unsigned long currentMillis = millis();
-  if (currentMillis - previousMillisIndicacao >= intervalIndicacao) {
-    previousMillisIndicacao = currentMillis;
-    bool valor = perdaIndicacao(inputMCH_A);
-    
-    if ((valor != valorAntMCH_A)) {
-      geralJson("INDICACAO MCH A");
-      Alerta = true;
-      if(valor)
-        digitalWrite(falhaMCH_A, HIGH); 
-    }
-    valor = perdaIndicacao(inputMCH_B);
-    
-    if ((valor != valorAntMCH_B)) {
-      geralJson("INDICACAO MCH B");
-      if(valor)
-        digitalWrite(falhaMCH_B, HIGH); 
-      Alerta = true;
-    }
+void postSucesso(String json){
+        resetFalha();
+        mchA.indicacaoAnterior =  mchA.indicacaoAtual;
+        mchB.indicacaoAnterior =  mchB.indicacaoAtual;
+        anteriorJson = json;
   }
-
+void checkIndicacao() {
+    perdaIndicacao(&mchA);
+    perdaIndicacao(&mchB);
 }
 
-void resetFalha(){
-   digitalWrite(falhaMCH_A, LOW); 
-   digitalWrite(falhaMCH_B, LOW); 
-   Alerta = false;
-  }
+void resetFalha() {
+  digitalWrite(mchA.ledFalha, LOW);
+  digitalWrite(mchB.ledFalha, LOW);
+}
+
+
 void checkVibracao() {
 
   unsigned long currentMillis = millis();
   if (currentMillis - previousMillisVibracao >= intervalVibracao) {
     previousMillisVibracao = currentMillis;
-    vibracao = getVibracao();
+    
+    getVibracao(&mediaVibracao,&maximoVibracao,&minimoVibracao);
     Serial.print("Check Vibracao: ");
-    Serial.println(vibracao);
-    if (getVibracao() > 800)
-      geralJson("Nivel Alto de vibracao");
+    Serial.print(mediaVibracao);
+    Serial.print(" - ");
+    Serial.print(maximoVibracao);
+    Serial.print(" - ");
+    Serial.print(minimoVibracao);
+    Serial.println(" - ");
+    if (mediaVibracao > 800)
+      gerarJson("Nivel Alto de vibracao");
   }
 }
-
 
 
 void postDados(String json) {
@@ -181,17 +155,16 @@ void postDados(String json) {
 
       Serial.println(httpCode);   //Print HTTP return code
       Serial.println(payload);    //Print request response payload
-      if (httpCode == 200){
-        resetFalha();
-        valorAntMCH_A =  perdaIndicacao(inputMCH_A);
-        valorAntMCH_B =  perdaIndicacao(inputMCH_B);
-        anteriorJson = json;
+      if (httpCode == 200) {
+        postSucesso(json);
+        alerta();
       }
       http.end();  //Close connection
 
     } else {
       USE_SERIAL.println("Error in WiFi connection");
     }
+    alerta();
   }
 }
 
@@ -223,6 +196,5 @@ void test() {
 void loop() {
   checkIndicacao();
   checkVibracao();
-  alerta();
   delay(10);
 }
