@@ -4,7 +4,7 @@
 struct NodeMonitor mchA, mchB;
 double mediaVibracao;
 int maximoVibracao,minimoVibracao;
-
+WiFiServer server(80);
 void inicializarVariaveis() {
 
   mchA.pinInput = D5;
@@ -49,7 +49,7 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFiMulti.addAP("DESKTOP-H4", "1234567890");
   WiFiMulti.addAP("valerio", "valerioarduinobreno");
-
+  Serial.println(WiFi.localIP());
 }
 void alerta() {
   tone(buzzer, 650, 1000);
@@ -63,7 +63,7 @@ int  getMovimentacao() {
 }
 
 double getVibracao(double *media,int *maximo,int *minimo) {
-  int i = 0;
+  int i = 1;
   int sensorValue = analogRead(sensorVibracao);
   *maximo =  sensorValue;
   *minimo =  sensorValue;
@@ -75,9 +75,10 @@ double getVibracao(double *media,int *maximo,int *minimo) {
     *maximo =(*maximo < sensorValue) ? sensorValue : *maximo;
     *minimo =(*minimo > sensorValue) ? sensorValue : *minimo;
     i++;
+    delay(10);
   }
 
-  *media = *media / (qtdLeiturasVibracao * 1.00);
+  *media = *media / (i * 1.00);
 }
 
 void  perdaIndicacao(NodeMonitor *mch) {
@@ -89,16 +90,23 @@ void  perdaIndicacao(NodeMonitor *mch) {
 void postEnviar(NodeMonitor mch){
   
     if ((mch.indicacaoAtual != mch.indicacaoAnterior)) {
-      gerarJson(mch.msg);
       if (mch.indicacaoAtual)
         digitalWrite(mch.ledFalha, HIGH);
+      gerarJson(mch.msg);
     }
 }
 
 
 void gerarJson(String mensagem) {
 
-  String json =  "{\"local\" : \"" + local + "\", \"mchA\": " + digitalRead(mchA.pinInput) + ", \"mchB\": " + digitalRead(mchB.pinInput)  + " , \"vib\": " + mediaVibracao + " , \"mov\": " + movimentacao + ", \"desc\": \"" + mensagem + "\" }";
+  String json =  "{\"local\" : \"" + local + "\" , ";
+         json += " \"mchA\": " + String(digitalRead(mchA.pinInput),DEC) + " , ";
+         json += " \"mchB\": " + String(digitalRead(mchB.pinInput),DEC)  + " , ";
+         json += "\"vibmedia\": " + String(mediaVibracao,2) + " , ";
+         json += "\"vibmax\": " + String(maximoVibracao,DEC) + " , ";
+         json += "\"vibmin\": " + String(minimoVibracao,DEC) + " , ";
+         json += "\"mov\": " + String(movimentacao,DEC) + " , ";
+         json += "\"desc\": \"" + mensagem + "\" }";
   postDados(json);
 }
 
@@ -168,33 +176,11 @@ void postDados(String json) {
   }
 }
 
-void test() {
-  if ((WiFiMulti.run() == WL_CONNECTED)) {
 
-    HTTPClient http;
-    USE_SERIAL.print("[HTTP] begin...\n");
-    http.begin(url); //HTTP
-    USE_SERIAL.print("[HTTP] GET...\n");
-    int httpCode = http.GET();
 
-    if (httpCode > 0) {
-      USE_SERIAL.printf("[HTTP] GET... code: %d\n", httpCode);
-
-      if (httpCode == HTTP_CODE_OK) {
-        String payload = http.getString();
-        USE_SERIAL.println(payload);
-      }
-    } else {
-      USE_SERIAL.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
-    }
-
-    http.end();
-    postDados("{\"tes\" : \"okok\"}");
-  }
-}
 
 void loop() {
   checkIndicacao();
   checkVibracao();
-  delay(10);
+  delay(1);
 }
