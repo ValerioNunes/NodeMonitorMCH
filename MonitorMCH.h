@@ -11,22 +11,20 @@
 ESP8266WiFiMulti WiFiMulti;
 
 
-String url = "http://192.168.0.29:8080";
-String local = "TU W01";
+const String url = "http://192.168.137.238:8080";
+const String local = "TU W01";
 String anteriorJson = ""; 
-
+const String apiKey =  "UNLNSI0NA4ZIJ8BA";
 const int sensorVibracao = A0;
 
-
-
-int sensorMovimentacao = D7;
+const int sensorMovimentacao = D7;
 int movimentacao;
 
 const int buzzer = D8;
 
 
 unsigned long previousMillisVibracao = 0;
-const long intervalVibracao = 1000;
+const long intervalVibracao = 5000;
 
 struct NodeMonitor
     {
@@ -37,19 +35,31 @@ struct NodeMonitor
         String msg;
     };
     
-        void inicializarVariaveis();
-        void alerta();
-        int  getMovimentacao();
-        double getVibracao();
-        void  perdaIndicacao(NodeMonitor mch);
-        void postEnviar(NodeMonitor mch);
-        void gerarJson(String mensagem);
-        void postSucesso();
-        void checkIndicacao();
-        void resetFalha();
-        void checkVibracao();
-        void postDados(String json);
-        void test();
-
- 
+struct NodeMonitorVibracao
+    {
+        int pinInput;
+        double media;
+        int maximo;
+        int minimo;
+        String msg;
+    };
+    
+    void inicializarVariaveis();
+    void onAlerta();
+    void offAlerta();
+    void resetFalha();
+        
+        
+    void checkVibracao();
+    double getVibracao(double *media,int *maximo,int *minimo);
+    
+    void checkIndicacao();
+    void perdaIndicacao(NodeMonitor mch);
+    int  getMovimentacao(); 
+    
+    void postEnviar(NodeMonitor mch);
+    void gerarJson(String mensagem); 
+    void postDados(String json);
+    void postSucesso();
+       
 #endif
